@@ -1,10 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import './App.css';
 import { ImageUploader } from './components/ImageUploader';
 import { CameraCapture } from './components/CameraCapture';
+import { GlbUploader } from './components/GlbUploader';
 import { ModelViewer } from './components/ModelViewer';
 import { useModelGeneration, type GenerationStatus } from './hooks/useModelGeneration';
 import type { CapturedImage } from './types';
+
+type LocalModel = {
+  url: string;
+  name: string;
+};
 
 function statusMessage(status: GenerationStatus, errorMessage: string | null): string {
   switch (status) {
@@ -25,10 +31,21 @@ function statusMessage(status: GenerationStatus, errorMessage: string | null): s
 
 function App() {
   const [images, setImages] = useState<CapturedImage[]>([]);
+  const [localModel, setLocalModel] = useState<LocalModel | null>(null);
   const hasImages = images.length > 0;
 
   const { status, modelUrl, errorMessage, generate } = useModelGeneration();
   const isBusy = status === 'uploading' || status === 'queued' || status === 'processing';
+
+  // O modelo aberto localmente tem prioridade; ao gerar um novo, ele é descartado.
+  const displayedModelUrl = localModel?.url ?? modelUrl;
+  const downloadName = localModel?.name ?? 'modelo.glb';
+
+  // Libera a blob URL anterior quando o modelo local muda ou o componente desmonta.
+  useEffect(() => {
+    if (!localModel) return;
+    return () => URL.revokeObjectURL(localModel.url);
+  }, [localModel]);
 
   function handleImagesAdded(newImages: CapturedImage[]) {
     setImages((prev) => [...prev, ...newImages]);
@@ -42,7 +59,12 @@ function App() {
     });
   }
 
+  function handleModelLoaded(url: string, name: string) {
+    setLocalModel({ url, name });
+  }
+
   function handleGenerate() {
+    setLocalModel(null);
     generate(images.map((img) => img.file));
   }
 
@@ -55,14 +77,16 @@ function App() {
         </div>
         <h1>Transforme fotos em modelos 3D</h1>
         <p className="lede">
-          Envie ou tire uma foto do objeto e receba um modelo 3D navegável em poucos minutos.
+          Envie ou tire uma foto do objeto e receba um modelo 3D navegável em poucos minutos. Já
+          tem um arquivo .glb? Abra e visualize direto.
         </p>
       </header>
 
       <main className="content">
-        <section className="capture" aria-label="Adicionar fotos">
+        <section className="capture" aria-label="Adicionar fotos ou modelo">
           <ImageUploader onImagesAdded={handleImagesAdded} />
           <CameraCapture onImagesAdded={handleImagesAdded} />
+          <GlbUploader onModelLoaded={handleModelLoaded} />
         </section>
 
         <section className="preview" aria-label="Fotos selecionadas">
@@ -103,18 +127,20 @@ function App() {
           )}
         </section>
 
-        <section className="viewer" aria-label="Modelo 3D gerado">
+        <section className="viewer" aria-label="Modelo 3D">
           <div className="viewer-stage">
-            {modelUrl ? (
+            {displayedModelUrl ? (
               <div className="viewer-canvas">
-                <ModelViewer modelUrl={modelUrl} />
+                <ModelViewer modelUrl={displayedModelUrl} />
               </div>
             ) : (
-              <p className="viewer-empty">O modelo 3D aparece aqui depois de gerado.</p>
+              <p className="viewer-empty">
+                O modelo 3D aparece aqui depois de gerado ou aberto.
+              </p>
             )}
           </div>
-          {modelUrl && (
-            <a href={modelUrl} download className="viewer-download">
+          {displayedModelUrl && (
+            <a href={displayedModelUrl} download={downloadName} className="viewer-download">
               Baixar modelo (.glb)
             </a>
           )}
